@@ -4,19 +4,21 @@ import { getStoredAdmins, addAdminUser } from '@/lib/orders-store';
 
 // GET: View list of admin accounts (Admin or Super Admin only)
 export async function GET(request: Request) {
-  const authResult = verifyAdminRole(request, ['super_admin', 'admin']);
+  const authResult = await verifyAdminRole(request, ['super_admin', 'admin']);
   if ('error' in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const admins = getStoredAdmins().map(({ passwordHash: _, ...publicUser }) => publicUser);
+  const admins = (await getStoredAdmins()).map(({ passwordHash: _, ...publicUser }) => {
+    void _;
+    return publicUser;
+  });
   return NextResponse.json({ success: true, admins });
 }
 
 // POST: Create a new admin account (SUPER ADMIN ONLY)
 export async function POST(request: Request) {
-  // Enforce SUPER ADMIN ONLY check
-  const authResult = verifyAdminRole(request, ['super_admin']);
+  const authResult = await verifyAdminRole(request, ['super_admin']);
   if ('error' in authResult) {
     return NextResponse.json(
       { error: authResult.error || 'Only the Super Admin can create new admin accounts.' },
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
     }
 
     const assignedRole = role === 'super_admin' ? 'super_admin' : 'admin';
-    const newAdmin = addAdminUser(name, email, password, assignedRole);
+    const newAdmin = await addAdminUser(name, email, password, assignedRole);
 
     return NextResponse.json({
       success: true,

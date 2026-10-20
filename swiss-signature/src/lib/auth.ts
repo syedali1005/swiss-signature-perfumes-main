@@ -30,7 +30,7 @@ export function decodeSessionToken(token: string): (User & { exp: number }) | nu
   }
 }
 
-export function getAuthenticatedUser(req: Request | NextRequest): User | null {
+export async function getAuthenticatedUser(req: Request | NextRequest): Promise<User | null> {
   try {
     let token: string | undefined;
 
@@ -59,9 +59,11 @@ export function getAuthenticatedUser(req: Request | NextRequest): User | null {
     const decoded = decodeSessionToken(token);
     if (!decoded) return null;
 
-    // Verify user still exists in database
-    const admins = getStoredAdmins();
-    const existing = admins.find(a => a.id === decoded.id && a.email.toLowerCase() === decoded.email.toLowerCase());
+    // Verify user still exists in MongoDB
+    const admins = await getStoredAdmins();
+    const existing = admins.find(
+      (a) => a.id === decoded.id && a.email.toLowerCase() === decoded.email.toLowerCase()
+    );
     if (!existing) return null;
 
     return {
@@ -76,8 +78,11 @@ export function getAuthenticatedUser(req: Request | NextRequest): User | null {
   }
 }
 
-export function verifyAdminRole(req: Request, allowedRoles: UserRole[] = ['admin', 'super_admin']): { user: User } | { error: string; status: number } {
-  const user = getAuthenticatedUser(req);
+export async function verifyAdminRole(
+  req: Request,
+  allowedRoles: UserRole[] = ['admin', 'super_admin']
+): Promise<{ user: User } | { error: string; status: number }> {
+  const user = await getAuthenticatedUser(req);
   if (!user) {
     return { error: 'Authentication required. Please log in to access admin panel.', status: 401 };
   }

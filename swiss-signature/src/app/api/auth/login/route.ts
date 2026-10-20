@@ -12,8 +12,8 @@ export async function POST(request: Request) {
     }
 
     const normalizedEmail = (email || '').trim().toLowerCase();
-    const admins = getStoredAdmins();
-    const admin = admins.find(a => a.email.toLowerCase() === normalizedEmail);
+    const admins = await getStoredAdmins();
+    const admin = admins.find((a) => a.email.toLowerCase() === normalizedEmail);
 
     if (!admin || admin.passwordHash !== password) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
+    console.error('[POST /api/auth/login] Error:', error);
     return NextResponse.json({ error: 'Failed to authenticate user' }, { status: 500 });
   }
 }

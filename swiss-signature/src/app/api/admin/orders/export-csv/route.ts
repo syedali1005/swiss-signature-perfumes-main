@@ -3,12 +3,12 @@ import { verifyAdminRole } from '@/lib/auth';
 import { getStoredOrders } from '@/lib/orders-store';
 
 export async function GET(request: Request) {
-  const authResult = verifyAdminRole(request, ['admin', 'super_admin']);
+  const authResult = await verifyAdminRole(request, ['admin', 'super_admin']);
   if ('error' in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const orders = getStoredOrders();
+  const orders = await getStoredOrders();
 
   // CSV Headers
   const headers = [
@@ -27,12 +27,14 @@ export async function GET(request: Request) {
     'Total Amount (PKR)',
     'Payment Method',
     'Order Status',
-    'Notes'
+    'Notes',
   ];
 
-  const rows = orders.map(order => {
+  const rows = orders.map((order) => {
     const customerName = `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim();
-    const itemsSummary = order.items.map(i => `${i.name} (${i.selectedVolume || 'Std'}) x${i.quantity}`).join('; ');
+    const itemsSummary = order.items
+      .map((i) => `${i.name} (${i.selectedVolume || 'Std'}) x${i.quantity}`)
+      .join('; ');
     const formattedDate = new Date(order.createdAt).toLocaleString('en-US');
 
     return [

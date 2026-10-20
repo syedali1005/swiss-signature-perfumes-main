@@ -6,25 +6,28 @@ import { Product } from '@/lib/types';
 
 // GET: Admin fetch products
 export async function GET(request: Request) {
-  const authResult = verifyAdminRole(request, ['admin', 'super_admin']);
+  const authResult = await verifyAdminRole(request, ['admin', 'super_admin']);
   if ('error' in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const products = getStoredProducts();
+  const products = await getStoredProducts();
   return NextResponse.json({ success: true, products });
 }
 
 // POST: Create or Edit product (ADMIN/SUPER ADMIN ONLY)
 export async function POST(request: Request) {
-  const authResult = verifyAdminRole(request, ['admin', 'super_admin']);
+  const authResult = await verifyAdminRole(request, ['admin', 'super_admin']);
   if ('error' in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
   try {
     const body = await request.json();
-    const { id, name, slug, tagline, price, image, category, fragranceFamily, volume, description, longDescription, notes, badge, inStock } = body;
+    const {
+      id, name, slug, tagline, price, image, category,
+      fragranceFamily, volume, description, longDescription, notes, badge, inStock,
+    } = body;
 
     if (!name || !price || !category) {
       return NextResponse.json({ error: 'Product name, price, and category are required' }, { status: 400 });
@@ -53,25 +56,23 @@ export async function POST(request: Request) {
       inStock: inStock !== undefined ? Boolean(inStock) : true,
     };
 
-    // Save locally to persistent store
-    saveProduct(newProduct);
-
-    // Sync to Sanity CMS if configured
+    await saveProduct(newProduct);
     await sanityCreateOrUpdateProduct(newProduct);
 
     return NextResponse.json({
       success: true,
-      message: 'Product created/updated successfully in Sanity CMS & catalog',
+      message: 'Product created/updated successfully in MongoDB & Sanity CMS',
       product: newProduct,
     });
   } catch (error) {
+    console.error('[POST /api/admin/products] Error:', error);
     return NextResponse.json({ error: 'Failed to save product' }, { status: 500 });
   }
 }
 
 // DELETE: Delete product (ADMIN/SUPER ADMIN ONLY)
 export async function DELETE(request: Request) {
-  const authResult = verifyAdminRole(request, ['admin', 'super_admin']);
+  const authResult = await verifyAdminRole(request, ['admin', 'super_admin']);
   if ('error' in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
@@ -84,18 +85,16 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Product ID is required' }, { status: 400 });
     }
 
-    const deleted = deleteProduct(productId);
+    const deleted = await deleteProduct(productId);
     await sanityDeleteProduct(productId);
 
     if (!deleted) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: 'Product deleted successfully',
-    });
+    return NextResponse.json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {
+    console.error('[DELETE /api/admin/products] Error:', error);
     return NextResponse.json({ error: 'Failed to delete product' }, { status: 500 });
   }
 }

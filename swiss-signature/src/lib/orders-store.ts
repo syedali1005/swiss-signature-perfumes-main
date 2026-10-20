@@ -1,164 +1,122 @@
-import fs from 'fs';
-import path from 'path';
+/**
+ * orders-store.ts
+ * ─────────────────────────────────────────────────────────────────
+ * All data access now goes through MongoDB via Mongoose.
+ * The old fs / .data file system approach has been removed.
+ * ─────────────────────────────────────────────────────────────────
+ */
+
+import { connectDB } from './mongodb';
+import { OrderModel, AdminUserModel, ProductModel, IAdminUser } from './models';
 import { Order, User, Product } from './types';
 import { products as initialProducts } from './data';
 
-const DATA_DIR = path.join(process.cwd(), '.data');
-const ORDERS_FILE = path.join(DATA_DIR, 'orders.json');
-const ADMINS_FILE = path.join(DATA_DIR, 'admins.json');
-const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+/** Strip Mongoose _id / __v fields and return a plain JS object. */
+function toPlain<T>(doc: unknown): T {
+  if (!doc) return doc as T;
+  const obj = (doc as { toObject?: () => Record<string, unknown> }).toObject
+    ? (doc as { toObject: () => Record<string, unknown> }).toObject()
+    : (doc as Record<string, unknown>);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { _id, __v, ...rest } = obj as { _id?: unknown; __v?: unknown } & Record<string, unknown>;
+  return rest as T;
 }
 
-// Default Seed Super Admin
-const DEFAULT_SUPER_ADMIN: User & { passwordHash: string } = {
+// Default super-admin seeded on first run
+const DEFAULT_SUPER_ADMIN = {
   id: 'usr_superadmin',
   name: 'Project Owner',
   email: 'admin-panel@swiss-signature.com',
-  role: 'super_admin',
+  role: 'super_admin' as const,
   passwordHash: 'Swiss123Signature786',
   createdAt: new Date().toISOString(),
 };
 
-// Initial Sample Orders
-const SAMPLE_ORDERS: Order[] = [
-  {
-    id: 'SS-891042',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    customer: {
-      firstName: 'Tariq',
-      lastName: 'Mahmood',
-      email: 'tariq.m@example.com',
-      phone: '+92 300 1234567',
-      address: 'Plot 45-C, Khayaban-e-Shahbaz, DHA Phase 6',
-      city: 'Karachi',
-      country: 'Pakistan',
-      postalCode: '75500',
-    },
-    items: [
-      {
-        productId: 'swiss-sauvage',
-        name: 'Swiss Sauvage',
-        price: 2750,
-        quantity: 1,
-        selectedVolume: '50ml',
-      },
-    ],
-    subtotal: 2750,
-    shippingFee: 250,
-    total: 3000,
-    paymentMethod: 'cod',
-    status: 'Pending',
-    notes: 'Please call before delivery.',
-  },
-  {
-    id: 'SS-741920',
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    customer: {
-      firstName: 'Ayesha',
-      lastName: 'Khan',
-      email: 'ayesha.k@example.com',
-      phone: '+92 321 9876543',
-      address: 'House 12, Street 4, Sector F-7/2',
-      city: 'Islamabad',
-      country: 'Pakistan',
-      postalCode: '44000',
-    },
-    items: [
-      {
-        productId: 'swiss-coco-mademoiselle',
-        name: 'Swiss Coco Mademoiselle',
-        price: 2350,
-        quantity: 2,
-        selectedVolume: '50ml',
-      },
-    ],
-    subtotal: 4700,
-    shippingFee: 350,
-    total: 5050,
-    paymentMethod: 'cod',
-    status: 'Delivered',
-  },
-];
+// ─── Orders ───────────────────────────────────────────────────────────────────
 
-// --- Orders Management ---
-export function getStoredOrders(): Order[] {
-  ensureDataDir();
-  if (!fs.existsSync(ORDERS_FILE)) {
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(SAMPLE_ORDERS, null, 2), 'utf-8');
-    return SAMPLE_ORDERS;
-  }
-  try {
-    const raw = fs.readFileSync(ORDERS_FILE, 'utf-8');
-    return JSON.parse(raw) as Order[];
-  } catch {
-    return SAMPLE_ORDERS;
-  }
+export async function getStoredOrders(): Promise<Order[]> {
+  await connectDB();
+  const docs = await OrderModel.find({}).sort({ createdAt: -1 }).lean();
+  return docs.map((d) => {
+    const { _id, __v, ...rest } = d as typeof d & { _id?: unknown; __v?: unknown };
+    void _id; void __v;
+    return rest as unknown as Order;
+  });
 }
 
-export function saveOrder(order: Order): Order {
-  ensureDataDir();
-  const orders = getStoredOrders();
-  const existingIndex = orders.findIndex(o => o.id === order.id);
-  if (existingIndex > -1) {
-    orders[existingIndex] = order;
-  } else {
-    orders.unshift(order);
-  }
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2), 'utf-8');
+export async function saveOrder(order: Order): Promise<Order> {
+  await connectDB();
+  await OrderModel.findOneAndUpdate(
+    { id: order.id },
+    { $set: order },
+    { upsert: true, returnDocument: 'after' }
+  );
   return order;
 }
 
-export function updateOrderStatus(orderId: string, status: Order['status']): Order | null {
-  const orders = getStoredOrders();
-  const order = orders.find(o => o.id === orderId);
-  if (!order) return null;
-  order.status = status;
-  saveOrder(order);
-  return order;
+export async function updateOrderStatus(
+  orderId: string,
+  status: Order['status']
+): Promise<Order | null> {
+  await connectDB();
+  const updated = await OrderModel.findOneAndUpdate(
+    { id: orderId },
+    { $set: { status } },
+    { returnDocument: 'after' }
+  ).lean();
+  if (!updated) return null;
+  const { _id, __v, ...rest } = updated as typeof updated & { _id?: unknown; __v?: unknown };
+  void _id; void __v;
+  return rest as unknown as Order;
 }
 
-// --- Admin Users Management ---
+// ─── Admin Users ──────────────────────────────────────────────────────────────
+
 export interface StoredUser extends User {
   passwordHash: string;
 }
 
-export function getStoredAdmins(): StoredUser[] {
-  ensureDataDir();
-  if (!fs.existsSync(ADMINS_FILE)) {
-    fs.writeFileSync(ADMINS_FILE, JSON.stringify([DEFAULT_SUPER_ADMIN], null, 2), 'utf-8');
-    return [DEFAULT_SUPER_ADMIN];
-  }
-  try {
-    const raw = fs.readFileSync(ADMINS_FILE, 'utf-8');
-    let list = JSON.parse(raw) as StoredUser[];
-    
-    // Ensure default super admin credentials are synced/updated
-    const idx = list.findIndex(a => a.id === DEFAULT_SUPER_ADMIN.id || a.email.toLowerCase() === DEFAULT_SUPER_ADMIN.email.toLowerCase() || a.email.toLowerCase() === 'admin@swiss-signature.com');
-    if (idx > -1) {
-      list[idx] = DEFAULT_SUPER_ADMIN;
-    } else {
-      list.unshift(DEFAULT_SUPER_ADMIN);
-    }
-    
-    fs.writeFileSync(ADMINS_FILE, JSON.stringify(list, null, 2), 'utf-8');
-    return list;
-  } catch {
-    return [DEFAULT_SUPER_ADMIN];
+async function ensureDefaultAdmin(): Promise<void> {
+  const existing = await AdminUserModel.findOne({ id: DEFAULT_SUPER_ADMIN.id });
+  if (!existing) {
+    await AdminUserModel.findOneAndUpdate(
+      { email: DEFAULT_SUPER_ADMIN.email },
+      { $set: DEFAULT_SUPER_ADMIN },
+      { upsert: true, returnDocument: 'after' }
+    );
+  } else {
+    // Keep credentials in sync
+    await AdminUserModel.updateOne(
+      { id: DEFAULT_SUPER_ADMIN.id },
+      { $set: { passwordHash: DEFAULT_SUPER_ADMIN.passwordHash, role: DEFAULT_SUPER_ADMIN.role } }
+    );
   }
 }
 
+export async function getStoredAdmins(): Promise<StoredUser[]> {
+  await connectDB();
+  await ensureDefaultAdmin();
+  const docs = await AdminUserModel.find({}).lean();
+  return docs.map((d) => {
+    const { _id, __v, ...rest } = d as typeof d & { _id?: unknown; __v?: unknown };
+    void _id; void __v;
+    return rest as unknown as StoredUser;
+  });
+}
 
-export function addAdminUser(name: string, email: string, passwordHash: string, role: 'admin' | 'super_admin' = 'admin'): User {
-  ensureDataDir();
-  const admins = getStoredAdmins();
+export async function addAdminUser(
+  name: string,
+  email: string,
+  passwordHash: string,
+  role: 'admin' | 'super_admin' = 'admin'
+): Promise<User> {
+  await connectDB();
   const normalizedEmail = email.trim().toLowerCase();
-  
-  if (admins.some(a => a.email.toLowerCase() === normalizedEmail)) {
+
+  const existing = await AdminUserModel.findOne({ email: normalizedEmail });
+  if (existing) {
     throw new Error('An account with this email already exists.');
   }
 
@@ -171,46 +129,47 @@ export function addAdminUser(name: string, email: string, passwordHash: string, 
     createdAt: new Date().toISOString(),
   };
 
-  admins.push(newUser);
-  fs.writeFileSync(ADMINS_FILE, JSON.stringify(admins, null, 2), 'utf-8');
-  
+  await AdminUserModel.create(newUser);
+
   const { passwordHash: _, ...publicUser } = newUser;
+  void _;
   return publicUser;
 }
 
-// --- Dynamic Products Management ---
-export function getStoredProducts(): Product[] {
-  ensureDataDir();
-  if (!fs.existsSync(PRODUCTS_FILE)) {
-    fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(initialProducts, null, 2), 'utf-8');
-    return initialProducts;
-  }
-  try {
-    const raw = fs.readFileSync(PRODUCTS_FILE, 'utf-8');
-    return JSON.parse(raw) as Product[];
-  } catch {
-    return initialProducts;
+// ─── Products ─────────────────────────────────────────────────────────────────
+
+async function seedProductsIfEmpty(): Promise<void> {
+  const count = await ProductModel.countDocuments();
+  if (count === 0) {
+    await ProductModel.insertMany(initialProducts);
   }
 }
 
-export function saveProduct(product: Product): Product {
-  ensureDataDir();
-  const productsList = getStoredProducts();
-  const existingIdx = productsList.findIndex(p => p.id === product.id || p.slug === product.slug);
-  if (existingIdx > -1) {
-    productsList[existingIdx] = product;
-  } else {
-    productsList.unshift(product);
-  }
-  fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(productsList, null, 2), 'utf-8');
+export async function getStoredProducts(): Promise<Product[]> {
+  await connectDB();
+  await seedProductsIfEmpty();
+  const docs = await ProductModel.find({}).lean();
+  return docs.map((d) => {
+    const { _id, __v, ...rest } = d as typeof d & { _id?: unknown; __v?: unknown };
+    void _id; void __v;
+    return rest as unknown as Product;
+  });
+}
+
+export async function saveProduct(product: Product): Promise<Product> {
+  await connectDB();
+  await ProductModel.findOneAndUpdate(
+    { $or: [{ id: product.id }, { slug: product.slug }] },
+    { $set: product },
+    { upsert: true, returnDocument: 'after' }
+  );
   return product;
 }
 
-export function deleteProduct(productId: string): boolean {
-  ensureDataDir();
-  const productsList = getStoredProducts();
-  const filtered = productsList.filter(p => p.id !== productId && p.slug !== productId);
-  if (filtered.length === productsList.length) return false;
-  fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(filtered, null, 2), 'utf-8');
-  return true;
+export async function deleteProduct(productId: string): Promise<boolean> {
+  await connectDB();
+  const result = await ProductModel.deleteOne({
+    $or: [{ id: productId }, { slug: productId }],
+  });
+  return result.deletedCount > 0;
 }

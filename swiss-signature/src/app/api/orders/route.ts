@@ -4,7 +4,7 @@ import { verifyAdminRole } from '@/lib/auth';
 import { calculateShippingFee } from '@/lib/shipping';
 import { Order, OrderItem, ShippingAddress, PaymentMethod } from '@/lib/types';
 
-// POST: Public endpoint to place an order (COD / Card / PayPal)
+// POST: Public endpoint to place an order (COD)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -20,13 +20,16 @@ export async function POST(request: Request) {
     }
 
     if (!customer || !customer.firstName || !customer.address || !customer.city || !customer.phone) {
-      return NextResponse.json({ error: 'Shipping details are incomplete. Please fill in your name, address, city, and phone number.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Shipping details are incomplete. Please fill in your name, address, city, and phone number.' },
+        { status: 400 }
+      );
     }
 
     // Calculate subtotal
-    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-    // Dynamic Shipping calculation
+    // Dynamic shipping calculation
     const shippingCalc = calculateShippingFee(customer.city, customer.country || 'Pakistan');
     const shippingFee = shippingCalc.fee;
     const total = subtotal + shippingFee;
@@ -46,8 +49,7 @@ export async function POST(request: Request) {
       notes,
     };
 
-    // Save to persistent orders store
-    saveOrder(newOrder);
+    await saveOrder(newOrder);
 
     return NextResponse.json({
       success: true,
@@ -55,24 +57,26 @@ export async function POST(request: Request) {
       message: 'Order created successfully',
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to place order' }, { status: 500 });
+    console.error('[POST /api/orders] Error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: 'Failed to place order', detail: message }, { status: 500 });
   }
 }
 
 // GET: Admin route to fetch all orders
 export async function GET(request: Request) {
-  const authResult = verifyAdminRole(request, ['admin', 'super_admin']);
+  const authResult = await verifyAdminRole(request, ['admin', 'super_admin']);
   if ('error' in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const orders = getStoredOrders();
+  const orders = await getStoredOrders();
   return NextResponse.json({ success: true, orders });
 }
 
 // PATCH: Admin route to update order status
 export async function PATCH(request: Request) {
-  const authResult = verifyAdminRole(request, ['admin', 'super_admin']);
+  const authResult = await verifyAdminRole(request, ['admin', 'super_admin']);
   if ('error' in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
@@ -85,13 +89,14 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'orderId and status are required' }, { status: 400 });
     }
 
-    const updated = updateOrderStatus(orderId, status);
+    const updated = await updateOrderStatus(orderId, status);
     if (!updated) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, order: updated });
   } catch (error) {
+    console.error('[PATCH /api/orders] Error:', error);
     return NextResponse.json({ error: 'Failed to update order status' }, { status: 500 });
   }
 }
