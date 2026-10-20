@@ -263,7 +263,7 @@ export default function AdminDashboardPage() {
     const matchesSearch =
       o.id.toLowerCase().includes(orderSearch.toLowerCase()) ||
       `${o.customer.firstName} ${o.customer.lastName}`.toLowerCase().includes(orderSearch.toLowerCase()) ||
-      o.customer.email.toLowerCase().includes(orderSearch.toLowerCase()) ||
+      (o.customer.email ?? '').toLowerCase().includes(orderSearch.toLowerCase()) ||
       o.customer.city.toLowerCase().includes(orderSearch.toLowerCase());
 
     const matchesStatus = orderStatusFilter === 'all' || o.status.toLowerCase() === orderStatusFilter.toLowerCase();
