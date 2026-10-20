@@ -19,8 +19,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Cart is empty' }, { status: 400 });
     }
 
-    if (!customer || !customer.email || !customer.firstName || !customer.address || !customer.city) {
-      return NextResponse.json({ error: 'Shipping details are incomplete' }, { status: 400 });
+    if (!customer || !customer.firstName || !customer.address || !customer.city || !customer.phone) {
+      return NextResponse.json({ error: 'Shipping details are incomplete. Please fill in your name, address, city, and phone number.' }, { status: 400 });
     }
 
     // Calculate subtotal

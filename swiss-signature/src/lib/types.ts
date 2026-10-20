@@ -63,12 +63,12 @@ export type PaymentMethod = 'cod' | 'card' | 'paypal';
 export interface ShippingAddress {
   firstName: string;
   lastName: string;
-  email: string;
+  email?: string;
   phone: string;
   address: string;
   city: string;
   country: string;
-  postalCode: string;
+  postalCode?: string;
 }
 
 export interface OrderItem {
